@@ -22,7 +22,7 @@ export default function RootLayout({
           href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" 
           rel="stylesheet"
         />
-        <style jsx global>{`
+        <style type="text/css">{`
           body {
             background-color: #f9fafb;
             color: #111827;
