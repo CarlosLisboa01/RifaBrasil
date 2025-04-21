@@ -14,6 +14,8 @@ interface UserParticipationStats {
 
 interface RaffleParticipation {
   id: string;
+  name: string;
+  phone: string;
   raffle: {
     id: string;
     title: string;
@@ -99,13 +101,20 @@ export default function MinhaContaPage() {
 
         console.log('Dados brutos das participações:', participationsData);
 
-        const formattedParticipations = participationsData.map(p => ({
+        const formattedParticipations: RaffleParticipation[] = participationsData.map(p => ({
           id: p.id,
           name: p.name || session.user.user_metadata?.name || 'Não informado',
           phone: p.phone || session.user.user_metadata?.phone || 'Não informado',
           chosen_numbers: Array.isArray(p.chosen_numbers) ? p.chosen_numbers : [],
           created_at: p.created_at,
-          raffle: p.raffle,
+          raffle: {
+            id: p.raffle?.id || '',
+            title: p.raffle?.title || '',
+            image_url: p.raffle?.image_url || '',
+            unit_price: p.raffle?.unit_price || 0,
+            status: p.raffle?.status || '',
+            description: p.raffle?.description || ''
+          },
           total_paid: (Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0) * (p.raffle?.unit_price || 0)
         }));
 
