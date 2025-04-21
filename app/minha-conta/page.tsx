@@ -101,29 +101,38 @@ export default function MinhaContaPage() {
 
         console.log('Dados brutos das participações:', participationsData);
 
-        const formattedParticipations: RaffleParticipation[] = participationsData.map(p => ({
-          id: p.id,
-          name: p.name || session.user.user_metadata?.name || 'Não informado',
-          phone: p.phone || session.user.user_metadata?.phone || 'Não informado',
-          chosen_numbers: Array.isArray(p.chosen_numbers) ? p.chosen_numbers : [],
-          created_at: p.created_at,
-          raffle: {
-            id: p.raffle?.id || '',
-            title: p.raffle?.title || '',
-            image_url: p.raffle?.image_url || '',
-            unit_price: p.raffle?.unit_price || 0,
-            status: p.raffle?.status || '',
-            description: p.raffle?.description || ''
-          },
-          total_paid: (Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0) * (p.raffle?.unit_price || 0)
-        }));
+        const formattedParticipations: RaffleParticipation[] = participationsData.map(p => {
+          // Verificamos se raffle é um array e pegamos o primeiro item, ou usamos o próprio valor
+          const raffleData = Array.isArray(p.raffle) ? p.raffle[0] : p.raffle;
+          
+          return {
+            id: p.id,
+            name: p.name || session.user.user_metadata?.name || 'Não informado',
+            phone: p.phone || session.user.user_metadata?.phone || 'Não informado',
+            chosen_numbers: Array.isArray(p.chosen_numbers) ? p.chosen_numbers : [],
+            created_at: p.created_at,
+            raffle: {
+              id: raffleData?.id || '',
+              title: raffleData?.title || '',
+              image_url: raffleData?.image_url || '',
+              unit_price: raffleData?.unit_price || 0,
+              status: raffleData?.status || '',
+              description: raffleData?.description || ''
+            },
+            total_paid: (Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0) * (raffleData?.unit_price || 0)
+          };
+        });
 
         console.log('Participações formatadas:', formattedParticipations);
 
         setParticipations(formattedParticipations);
 
         // Calcular estatísticas
-        const uniqueRaffles = new Set(participationsData.filter(p => p.raffle).map(p => p.raffle.id));
+        const uniqueRaffles = new Set(participationsData.filter(p => p.raffle).map(p => {
+          const raffleData = Array.isArray(p.raffle) ? p.raffle[0] : p.raffle;
+          return raffleData?.id;
+        }).filter(Boolean));
+        
         const totalNumbers = participationsData.reduce((sum, p) => 
           sum + (Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0), 0);
 
