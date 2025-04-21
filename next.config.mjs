@@ -11,6 +11,9 @@ const nextConfig = {
         pathname: '/storage/v1/object/public/**',
       },
     ],
+  },
+  experimental: {
+    appDir: true
   }
 };
 
