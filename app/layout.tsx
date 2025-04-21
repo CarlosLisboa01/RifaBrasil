@@ -17,6 +17,31 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
+      <head>
+        <link 
+          href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" 
+          rel="stylesheet"
+        />
+        <style jsx global>{`
+          body {
+            background-color: #f9fafb;
+            color: #111827;
+          }
+          
+          .text-important {
+            color: #1f2937 !important;
+          }
+          
+          .text-title {
+            color: #374151;
+            font-weight: bold;
+          }
+          
+          .text-description {
+            color: #4b5563;
+          }
+        `}</style>
+      </head>
       <body className={inter.className}>
         <div className="min-h-screen bg-gray-50 flex flex-col">
           <Header />
