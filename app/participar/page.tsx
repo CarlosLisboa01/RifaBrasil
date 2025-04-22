@@ -218,38 +218,44 @@ export default function ParticiparPage() {
         return;
       }
       
-      // Registrar participação usando os dados do usuário logado
-      const { error } = await supabase
-        .from('participants')
-        .insert({
-          user_id: user.id,
+      // Calcular valor total (já foi calculado pelo useEffect, mas vamos garantir)
+      const totalPrice = chosenNumbers.length * selectedRaffle.unit_price;
+
+      // Gerar a preferência de pagamento
+      const response = await fetch('/api/pagamento/preference', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
           name: user.user_metadata.name,
           phone: user.user_metadata.phone,
-          chosen_numbers: chosenNumbers,
-          raffle_id: selectedRaffle.id,
-        });
-        
-      if (error) throw error;
-      
-      setMessage({
-        type: 'success',
-        text: 'Sua participação foi registrada com sucesso!'
+          chosenNumbers: chosenNumbers,
+          raffleId: selectedRaffle.id,
+          raffleTitle: selectedRaffle.title,
+          price: totalPrice
+        }),
       });
-      
-      // Limpar formulário
-      setValue('chosenNumbers', '');
-      
-      // Redirecionar para página de confirmação
-      setTimeout(() => {
-        router.push('/confirmacao');
-      }, 2000);
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || 'Erro ao gerar preferência de pagamento');
+      }
+
+      // Redirecionar para o checkout do Mercado Pago
+      if (responseData.init_point) {
+        window.location.href = responseData.init_point;
+      } else {
+        throw new Error('URL de pagamento não retornada');
+      }
       
     } catch (error: any) {
       setMessage({
         type: 'error',
-        text: error.message || 'Erro ao registrar participação'
+        text: error.message || 'Erro ao iniciar processo de pagamento'
       });
-    } finally {
       setSubmitting(false);
     }
   };
