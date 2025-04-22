@@ -410,7 +410,20 @@ export default function ParticiparPage() {
                     min="1"
                     max={availableNumbers.length}
                     value={randomQuantity}
-                    onChange={(e) => setRandomQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                    onChange={(e) => {
+                      const value = e.target.value === '' ? '' : parseInt(e.target.value);
+                      if (value === '') {
+                        setRandomQuantity(1); // Padrão para 1 quando estiver vazio
+                      } else {
+                        const numValue = parseInt(value.toString());
+                        // Permitir valores entre 1 e o número máximo disponível
+                        if (!isNaN(numValue)) {
+                          const finalValue = Math.min(Math.max(1, numValue), availableNumbers.length);
+                          setRandomQuantity(finalValue);
+                        }
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()} // Seleciona todo o texto ao focar
                     className="block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500 text-sm"
                   />
                 </div>
