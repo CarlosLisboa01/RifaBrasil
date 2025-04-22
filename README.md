@@ -11,7 +11,9 @@ Para acessar o site da aplicação, visite: [https://rifabrasil.vercel.app](http
 - **Página Inicial**: Interface amigável com chamada para participação
 - **Sistema de Autenticação**: Login e cadastro de usuários
 - **Cadastro de Participantes**: Formulário com validações para participar dos sorteios
+- **Sistema de Pagamento**: Integração com Mercado Pago para processamento de pagamentos
 - **Painel de Administração**: Gerenciamento completo de sorteios e participantes
+- **Área "Minha Conta"**: Gestão de perfil e visualização das participações do usuário
 - **Resultados**: Visualização dos resultados de sorteios passados e futuros
 
 ## Tecnologias Utilizadas
@@ -19,6 +21,7 @@ Para acessar o site da aplicação, visite: [https://rifabrasil.vercel.app](http
 - **Frontend**: Next.js (React), TailwindCSS
 - **Backend**: Supabase (PostgreSQL, Autenticação, Armazenamento)
 - **Validação de Formulários**: React Hook Form, Zod
+- **Pagamentos**: API do Mercado Pago
 - **Tipagem**: TypeScript
 
 ## Pré-requisitos
@@ -100,24 +103,39 @@ pnpm start
    - Copie a URL do projeto e a chave anônima (anon key)
    - Adicione esses valores ao seu arquivo `.env.local`
 
-2. Estrutura do banco de dados:
-   - Use o SQL Editor no painel do Supabase para criar as seguintes tabelas:
+2. Configure o Mercado Pago (Novo!):
+   - Crie uma conta no [Mercado Pago](https://www.mercadopago.com.br)
+   - No painel do desenvolvedor, obtenha suas credenciais de teste:
+     - `MERCADOPAGO_PUBLIC_KEY`
+     - `MERCADOPAGO_ACCESS_TOKEN`
+   - Adicione essas credenciais ao seu arquivo `.env.local`
+   - Para produção, substitua pelas credenciais reais
+
+3. Estrutura do banco de dados:
+   - Use o SQL Editor no painel do Supabase para executar o script completo disponível em `setup/migrations/complete_setup.sql`
+   - Este script cria as seguintes tabelas principais:
+     - `raffles`: Informações sobre os sorteios
+     - `participants`: Participações confirmadas
+     - `participations_pending`: Participações aguardando pagamento
+     - `admin_users`: Usuários com permissão de administrador
+     - `raffles_draws`: Registros de números sorteados
 
 ```sql
--- Habilitar a extensão uuid-ossp para gerar UUIDs
+-- Versão resumida do SQL (veja o arquivo completo em setup/migrations/complete_setup.sql)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Primeiramente, criar tabelas sem as referências circulares
 CREATE TABLE public.raffles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title TEXT NOT NULL,
     description TEXT,
     min_number INTEGER NOT NULL DEFAULT 1,
     max_number INTEGER NOT NULL DEFAULT 100,
-    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed', 'completed')),
+    status TEXT NOT NULL DEFAULT 'open',
     winner_id UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-    drawn_at TIMESTAMP WITH TIME ZONE
+    drawn_at TIMESTAMP WITH TIME ZONE,
+    unit_price NUMERIC DEFAULT 0,
+    image_url TEXT
 );
 
 CREATE TABLE public.participants (
@@ -127,53 +145,24 @@ CREATE TABLE public.participants (
     phone TEXT NOT NULL,
     chosen_numbers INTEGER[] NOT NULL,
     raffle_id UUID,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    payment_id TEXT,
+    payment_status TEXT DEFAULT 'approved',
+    payment_amount NUMERIC(10,2)
 );
 
--- Tabela de Administradores
-CREATE TABLE public.admin_users (
+CREATE TABLE public.participations_pending (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES auth.users(id) NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT,
+    chosen_numbers INTEGER[] NOT NULL,
+    raffle_id UUID NOT NULL,
+    external_reference TEXT NOT NULL,
+    payment_id TEXT,
+    payment_status TEXT DEFAULT 'pending',
+    status TEXT DEFAULT 'pending',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-);
-
--- Depois adicionar as referências circulares
-ALTER TABLE public.raffles 
-    ADD CONSTRAINT fk_winner_id 
-    FOREIGN KEY (winner_id) 
-    REFERENCES public.participants(id);
-
-ALTER TABLE public.participants 
-    ADD CONSTRAINT fk_raffle_id 
-    FOREIGN KEY (raffle_id) 
-    REFERENCES public.raffles(id) NOT NULL;
-
--- Habilite RLS (Row Level Security)
-ALTER TABLE public.raffles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.participants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
-
--- Políticas de Segurança
--- Raffle Policies
-CREATE POLICY "Sorteios visíveis para todos" ON public.raffles FOR SELECT USING (true);
-CREATE POLICY "Apenas admins podem inserir sorteios" ON public.raffles FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid())
-);
-CREATE POLICY "Apenas admins podem atualizar sorteios" ON public.raffles FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid())
-);
-
--- Participant Policies
-CREATE POLICY "Usuários podem ver suas próprias participações" ON public.participants FOR SELECT USING (
-    auth.uid() = user_id OR EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid())
-);
-CREATE POLICY "Usuários podem criar suas próprias participações" ON public.participants FOR INSERT WITH CHECK (
-    auth.uid() = user_id
-);
-
--- Admin Users Policies
-CREATE POLICY "Apenas admins podem ver lista de admins" ON public.admin_users FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid())
 );
 ```
 
@@ -324,3 +313,25 @@ Para contribuir com este projeto:
 ## Licença
 
 Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+
+## Fluxo de Pagamento
+
+O sistema implementa um fluxo completo de pagamento:
+
+1. Usuário seleciona números da rifa
+2. Sistema cria um registro de participação pendente
+3. Usuário é redirecionado para o Mercado Pago
+4. Após o pagamento:
+   - Sucesso: Registro confirmado na tabela `participants`
+   - Pendente: Usuário pode verificar status na área "Minha Conta"
+   - Falha: Usuário pode tentar novamente
+
+As notificações de pagamento são processadas automaticamente por um webhook.
+
+## Webhooks e Notificações
+
+O sistema está preparado para receber notificações do Mercado Pago:
+
+- Endpoint: `/api/pagamento/webhook`
+- Função: Atualiza o status das participações conforme recebe notificações
+- Segurança: Validação da origem das notificações
