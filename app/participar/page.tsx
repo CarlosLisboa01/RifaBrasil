@@ -221,6 +221,17 @@ export default function ParticiparPage() {
       // Calcular valor total (já foi calculado pelo useEffect, mas vamos garantir)
       const totalPrice = chosenNumbers.length * selectedRaffle.unit_price;
 
+      console.log("Iniciando criação da preferência de pagamento...");
+      console.log("Dados:", {
+        userId: user.id,
+        name: user.user_metadata.name,
+        phone: user.user_metadata.phone,
+        chosenNumbers: chosenNumbers,
+        raffleId: selectedRaffle.id,
+        raffleTitle: selectedRaffle.title,
+        price: totalPrice
+      });
+
       // Gerar a preferência de pagamento
       const response = await fetch('/api/pagamento/preference', {
         method: 'POST',
@@ -238,7 +249,10 @@ export default function ParticiparPage() {
         }),
       });
 
+      console.log("Resposta status:", response.status);
+      
       const responseData = await response.json();
+      console.log("Resposta dados:", responseData);
 
       if (!response.ok) {
         throw new Error(responseData.error || 'Erro ao gerar preferência de pagamento');
@@ -246,12 +260,25 @@ export default function ParticiparPage() {
 
       // Redirecionar para o checkout do Mercado Pago
       if (responseData.init_point) {
-        window.location.href = responseData.init_point;
+        console.log('Redirecionando para:', responseData.init_point);
+        
+        // Criamos um elemento visível mostrando o link de pagamento
+        setMessage({
+          type: 'success',
+          text: `Redirecionando para o Mercado Pago... Se não for redirecionado automaticamente, clique aqui: 
+                <a href="${responseData.init_point}" target="_blank" class="underline text-blue-600 hover:text-blue-800">Ir para pagamento</a>`
+        });
+        
+        // Redirecionamos após um pequeno atraso para que o usuário possa ver a mensagem
+        setTimeout(() => {
+          window.location.href = responseData.init_point;
+        }, 1500);
       } else {
         throw new Error('URL de pagamento não retornada');
       }
       
     } catch (error: any) {
+      console.error("Erro completo:", error);
       setMessage({
         type: 'error',
         text: error.message || 'Erro ao iniciar processo de pagamento'
@@ -299,8 +326,10 @@ export default function ParticiparPage() {
       ) : (
         <>
           {message && (
-            <div className={`mb-4 p-3 rounded ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {message.text}
+            <div 
+              className={`mb-4 p-3 rounded ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+              dangerouslySetInnerHTML={{ __html: message.text }}
+            >
             </div>
           )}
           
