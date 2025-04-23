@@ -13,10 +13,19 @@ import { Raffle } from '@/types';
 const participationSchema = z.object({
   chosenNumbers: z
     .string()
+    .min(1, 'É necessário escolher pelo menos um número')
     .refine((val) => {
       const numbers = val.split(',').map(n => n.trim());
       return numbers.length > 0 && numbers.every(n => !isNaN(Number(n)));
     }, { message: 'Números inválidos. Insira números separados por vírgula.' }),
+  name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
+  phone: z.string()
+    .min(10, 'Telefone deve ter pelo menos 10 dígitos')
+    .refine((val) => {
+      // Remover caracteres não numéricos e verificar se tem pelo menos 10 dígitos
+      const numbersOnly = val.replace(/\D/g, '');
+      return numbersOnly.length >= 10 && numbersOnly.length <= 11;
+    }, { message: 'Telefone deve conter entre 10 e 11 dígitos numéricos' })
 });
 
 type FormValues = z.infer<typeof participationSchema>;
@@ -37,11 +46,21 @@ export default function ParticiparPage() {
     resolver: zodResolver(participationSchema),
     defaultValues: {
       chosenNumbers: '',
+      name: '',
+      phone: ''
     },
   });
 
   // Observar mudanças nos números escolhidos para atualizar o valor total
   const chosenNumbers = watch('chosenNumbers');
+
+  // Quando o usuário for carregado, preencher os campos de nome e telefone
+  useEffect(() => {
+    if (user) {
+      setValue('name', user.user_metadata?.name || '');
+      setValue('phone', user.user_metadata?.phone || '');
+    }
+  }, [user, setValue]);
 
   useEffect(() => {
     if (selectedRaffle?.unit_price && chosenNumbers) {
@@ -92,7 +111,7 @@ export default function ParticiparPage() {
     if (!raffle) return;
     
     try {
-      // Buscar números já escolhidos
+      // Buscar números já escolhidos na tabela de participantes confirmados
       const { data: existingParticipants, error: participantsError } = await supabase
         .from('participants')
         .select('chosen_numbers')
@@ -100,14 +119,26 @@ export default function ParticiparPage() {
         
       if (participantsError) throw participantsError;
       
+      // Buscar números em participações pendentes
+      const { data: pendingParticipations, error: pendingError } = await supabase
+        .from('participations_pending')
+        .select('chosen_numbers')
+        .eq('raffle_id', raffle.id)
+        .eq('status', 'pending');
+        
+      if (pendingError) throw pendingError;
+      
       // Criar um array com todos os números possíveis
       const allNumbers: number[] = [];
       for (let i = raffle.min_number; i <= raffle.max_number; i++) {
         allNumbers.push(i);
       }
       
-      // Identificar os números já escolhidos
-      const chosenNumbers = existingParticipants?.flatMap(p => p.chosen_numbers) || [];
+      // Combinar os números já escolhidos de ambas as tabelas
+      const chosenNumbers = [
+        ...(existingParticipants?.flatMap(p => p.chosen_numbers) || []),
+        ...(pendingParticipations?.flatMap(p => p.chosen_numbers) || [])
+      ];
       
       // Filtrar apenas os números disponíveis
       const available = allNumbers.filter(num => !chosenNumbers.includes(num));
@@ -173,116 +204,115 @@ export default function ParticiparPage() {
     return null;
   };
 
-  const onSubmit = async (data: FormValues) => {
-    if (!selectedRaffle || !user) {
-      setMessage({
-        type: 'error',
-        text: 'Nenhum sorteio selecionado ou usuário não autenticado'
-      });
-      return;
-    }
+  // Função para formatar o número de telefone com máscara brasileira
+  const formatPhoneNumber = (value: string) => {
+    // Remove todos os caracteres não numéricos
+    const numbersOnly = value.replace(/\D/g, '');
     
-    // Validar números escolhidos
-    const numbersValidationError = validateChosenNumbers(data.chosenNumbers, selectedRaffle);
-    if (numbersValidationError) {
-      setMessage({
-        type: 'error',
-        text: numbersValidationError
-      });
-      return;
+    // Aplica a máscara de acordo com o tamanho
+    if (numbersOnly.length <= 10) {
+      // Formato (XX) XXXX-XXXX para telefones com 10 dígitos ou menos
+      return numbersOnly
+        .replace(/(\d{2})/, '($1) ')
+        .replace(/(\d{2})\s(\d{4})/, '$1 $2-')
+        .replace(/(\d{2})\s(\d{4})-(\d{0,4})/, '$1 $2-$3');
+    } else {
+      // Formato (XX) XXXXX-XXXX para telefones com 11 dígitos (celular)
+      return numbersOnly
+        .replace(/(\d{2})/, '($1) ')
+        .replace(/(\d{2})\s(\d{5})/, '$1 $2-')
+        .replace(/(\d{2})\s(\d{5})-(\d{0,4})/, '$1 $2-$3');
     }
+  };
+
+  const onSubmit = async (data: FormValues) => {
+    setSubmitting(true);
+    setMessage(null);
     
     try {
-      setSubmitting(true);
-      setMessage(null);
+      // Converter a string de números escolhidos para um array de números inteiros
+      const chosenNumbersArray = data.chosenNumbers
+        .split(',')
+        .map(n => parseInt(n.trim(), 10))
+        .filter(n => !isNaN(n));
       
-      // Converter a string de números para array de números
-      const chosenNumbers = data.chosenNumbers.split(',').map(n => parseInt(n.trim(), 10));
-      
-      // Verificar se os números já foram escolhidos por outra pessoa
-      const { data: existingNumbers, error: checkError } = await supabase
-        .from('participants')
-        .select('chosen_numbers')
-        .eq('raffle_id', selectedRaffle.id);
-        
-      if (checkError) throw checkError;
-      
-      const alreadyChosenNumbers = existingNumbers?.flatMap(p => p.chosen_numbers) || [];
-      const conflictingNumbers = chosenNumbers.filter(n => alreadyChosenNumbers.includes(n));
-      
-      if (conflictingNumbers.length > 0) {
-        setMessage({
-          type: 'error',
-          text: `Os seguintes números já foram escolhidos: ${conflictingNumbers.join(', ')}`
-        });
-        return;
+      if (chosenNumbersArray.length === 0) {
+        throw new Error('Selecione pelo menos um número para participar');
       }
       
-      // Calcular valor total (já foi calculado pelo useEffect, mas vamos garantir)
-      const totalPrice = chosenNumbers.length * selectedRaffle.unit_price;
+      // Verificar novamente se os números escolhidos estão disponíveis
+      const { data: existingParticipants, error: participantsError } = await supabase
+        .from('participants')
+        .select('chosen_numbers')
+        .eq('raffle_id', selectedRaffle?.id);
+        
+      if (participantsError) throw new Error('Erro ao verificar números disponíveis');
+      
+      // Buscar números em participações pendentes
+      const { data: pendingParticipations, error: pendingError } = await supabase
+        .from('participations_pending')
+        .select('chosen_numbers')
+        .eq('raffle_id', selectedRaffle?.id)
+        .eq('status', 'pending');
+        
+      if (pendingError) throw new Error('Erro ao verificar participações pendentes');
+      
+      // Combinar todos os números já escolhidos
+      const allChosenNumbers = [
+        ...(existingParticipants?.flatMap(p => p.chosen_numbers) || []),
+        ...(pendingParticipations?.flatMap(p => p.chosen_numbers) || [])
+      ];
+      
+      // Verificar se algum dos números selecionados já foi escolhido
+      const unavailableNumbers = chosenNumbersArray.filter(num => allChosenNumbers.includes(num));
+      
+      if (unavailableNumbers.length > 0) {
+        throw new Error(`Os seguintes números já foram escolhidos por outro participante: ${unavailableNumbers.join(', ')}. Por favor, escolha outros números.`);
+      }
 
-      console.log("Iniciando criação da preferência de pagamento...");
-      console.log("Dados:", {
-        userId: user.id,
-        name: user.user_metadata.name,
-        phone: user.user_metadata.phone,
-        chosenNumbers: chosenNumbers,
-        raffleId: selectedRaffle.id,
-        raffleTitle: selectedRaffle.title,
-        price: totalPrice
-      });
-
-      // Gerar a preferência de pagamento
+      // Continuar com o processo de envio
+      const participationData = {
+        user_id: user?.id,
+        name: data.name,
+        phone: data.phone.replace(/\D/g, ''), // Remover caracteres não numéricos
+        chosen_numbers: chosenNumbersArray,
+        raffle_id: selectedRaffle?.id,
+        status: 'pending',
+      };
+      
       const response = await fetch('/api/pagamento/preference', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          userId: user.id,
-          name: user.user_metadata.name,
-          phone: user.user_metadata.phone,
-          chosenNumbers: chosenNumbers,
-          raffleId: selectedRaffle.id,
-          raffleTitle: selectedRaffle.title,
-          price: totalPrice
+          participation: participationData,
+          unit_price: selectedRaffle?.unit_price || 0,
         }),
       });
-
-      console.log("Resposta status:", response.status);
       
-      const responseData = await response.json();
-      console.log("Resposta dados:", responseData);
-
       if (!response.ok) {
-        throw new Error(responseData.error || 'Erro ao gerar preferência de pagamento');
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.message || 'Erro ao criar preferência de pagamento');
       }
-
-      // Redirecionar para o checkout do Mercado Pago
-      if (responseData.init_point) {
-        console.log('Redirecionando para:', responseData.init_point);
-        
-        // Criamos um elemento visível mostrando o link de pagamento
-        setMessage({
-          type: 'success',
-          text: `Redirecionando para o Mercado Pago... Se não for redirecionado automaticamente, clique aqui: 
-                <a href="${responseData.init_point}" target="_blank" class="underline text-blue-600 hover:text-blue-800">Ir para pagamento</a>`
-        });
-        
-        // Redirecionamos após um pequeno atraso para que o usuário possa ver a mensagem
-        setTimeout(() => {
-          window.location.href = responseData.init_point;
-        }, 1500);
+      
+      const { preferenceId, participation_id, init_point } = await response.json();
+      
+      // Se tiver o link de pagamento direto, redirecionar para lá
+      if (init_point) {
+        window.location.href = init_point;
       } else {
-        throw new Error('URL de pagamento não retornada');
+        // Caso contrário, redirecionar para nossa página de pagamento
+        router.push(`/pagamento?preference_id=${preferenceId}&participation_id=${participation_id}`);
       }
       
     } catch (error: any) {
-      console.error("Erro completo:", error);
+      console.error('Erro ao participar:', error);
       setMessage({
         type: 'error',
-        text: error.message || 'Erro ao iniciar processo de pagamento'
+        text: error.message || 'Ocorreu um erro ao processar sua participação. Tente novamente.'
       });
+    } finally {
       setSubmitting(false);
     }
   };
@@ -412,6 +442,43 @@ export default function ParticiparPage() {
           )}
           
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium text-title mb-1">
+                Seu Nome
+              </label>
+              <input
+                id="name"
+                type="text"
+                {...register('name')}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                placeholder="Seu nome completo"
+              />
+              {errors.name && (
+                <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
+              )}
+            </div>
+            
+            <div>
+              <label htmlFor="phone" className="block text-sm font-medium text-title mb-1">
+                Seu Telefone
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                {...register('phone')}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+                placeholder="(00) 00000-0000"
+                onChange={(e) => {
+                  const formattedValue = formatPhoneNumber(e.target.value);
+                  e.target.value = formattedValue;
+                  setValue('phone', formattedValue, { shouldValidate: true });
+                }}
+              />
+              {errors.phone && (
+                <p className="mt-1 text-sm text-red-600">{errors.phone.message}</p>
+              )}
+            </div>
+
             <div>
               <label htmlFor="chosenNumbers" className="block text-sm font-medium text-title mb-1">
                 Números escolhidos (separados por vírgula)

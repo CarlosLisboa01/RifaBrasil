@@ -14,13 +14,49 @@ export async function POST(request: NextRequest) {
     console.log("API: Recebendo requisição para criar preferência");
     
     const body = await request.json();
-    const { userId, name, phone, chosenNumbers, raffleId, raffleTitle, price } = body;
-
-    console.log("API: Dados recebidos:", { userId, name, phone, chosenNumbers: chosenNumbers.length, raffleId, raffleTitle, price });
-
-    if (!userId || !raffleId || !chosenNumbers || !price || chosenNumbers.length === 0) {
-      return NextResponse.json({ error: 'Dados incompletos' }, { status: 400 });
+    
+    // Novo formato: recebe diretamente os dados da participação
+    const { participation, unit_price } = body;
+    
+    // Validar dados necessários
+    if (!participation || !participation.user_id || !participation.raffle_id || 
+        !participation.chosen_numbers || !unit_price) {
+      return NextResponse.json({ 
+        error: 'Dados incompletos', 
+        details: 'Todos os campos da participação são necessários' 
+      }, { status: 400 });
     }
+    
+    // Extrair os dados necessários
+    const { user_id, name, phone, chosen_numbers, raffle_id } = participation;
+    
+    // Obter detalhes do sorteio
+    const { data: raffle, error: raffleError } = await supabase
+      .from('raffles')
+      .select('title')
+      .eq('id', raffle_id)
+      .single();
+    
+    if (raffleError) {
+      console.error('API: Erro ao buscar informações do sorteio:', raffleError);
+      return NextResponse.json({ 
+        error: 'Sorteio não encontrado', 
+        details: raffleError 
+      }, { status: 404 });
+    }
+    
+    // Calcular valor total
+    const price = chosen_numbers.length * unit_price;
+    
+    console.log("API: Dados processados:", { 
+      user_id, 
+      name, 
+      phone, 
+      chosen_numbers: chosen_numbers.length, 
+      raffle_id, 
+      raffle_title: raffle.title, 
+      price 
+    });
 
     // Criar um ID de referência externa única para esta transação
     const externalReference = uuidv4();
@@ -47,14 +83,14 @@ export async function POST(request: NextRequest) {
     
     // Salvar uma versão pendente da participação no banco de dados
     console.log("API: Tentando salvar participação pendente");
-    const { data: participation, error: participationError } = await supabase
+    const { data: participationData, error: participationError } = await supabase
       .from('participations_pending')
       .insert({
-        user_id: userId,
-        name: name,
-        phone: phone,
-        chosen_numbers: chosenNumbers,
-        raffle_id: raffleId,
+        user_id,
+        name,
+        phone,
+        chosen_numbers,
+        raffle_id,
         external_reference: externalReference,
         status: 'pending'
       })
@@ -70,7 +106,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    console.log("API: Participação pendente salva com sucesso. ID:", participation.id);
+    console.log("API: Participação pendente salva com sucesso. ID:", participationData.id);
 
     // URL de notificação para o webhook
     const baseUrl = process.env.NEXT_PUBLIC_URL || 'https://rifa-brasil.vercel.app';
@@ -82,7 +118,7 @@ export async function POST(request: NextRequest) {
     const buyerEmail = 'comprador@example.com'; // Email padrão ou do usuário se disponível
     
     const preference = await createPaymentPreference(
-      `${raffleTitle} - ${chosenNumbers.length} número(s)`,
+      `${raffle.title} - ${chosen_numbers.length} número(s)`,
       price,
       1, // Quantidade sempre será 1, pois o preço já é o total
       buyerEmail,
@@ -95,9 +131,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      preference_id: preference.id,
+      preferenceId: preference.id,
       init_point: preference.init_point, // URL para redirecionar o usuário
-      participation_id: participation.id
+      participation_id: participationData.id
     });
 
   } catch (error) {

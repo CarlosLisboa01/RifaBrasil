@@ -3,25 +3,68 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/utils/supabase';
+
+interface ParticipationDetails {
+  id: string;
+  raffle_title: string;
+  chosen_numbers: number[];
+  total_paid: number;
+}
 
 export default function PagamentoSucessoPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [participationDetails, setParticipationDetails] = useState<ParticipationDetails | null>(null);
 
   useEffect(() => {
-    // Obter o ID de pagamento da URL
-    const payment_id = searchParams.get('payment_id');
-    setPaymentId(payment_id);
-    setLoading(false);
+    const fetchParticipationDetails = async () => {
+      const payment_id = searchParams.get('payment_id');
+      setPaymentId(payment_id);
+      
+      if (payment_id) {
+        try {
+          // Buscar detalhes da participação pelo ID do pagamento
+          const { data, error } = await supabase
+            .from('participants')
+            .select(`
+              id,
+              chosen_numbers,
+              payment_amount,
+              raffles!inner (
+                id,
+                title
+              )
+            `)
+            .eq('payment_id', payment_id)
+            .single();
+            
+          if (data && !error) {
+            setParticipationDetails({
+              id: data.id,
+              raffle_title: data.raffles.title,
+              chosen_numbers: data.chosen_numbers,
+              total_paid: data.payment_amount
+            });
+          }
+        } catch (error) {
+          console.error('Erro ao buscar detalhes da participação:', error);
+        }
+      }
+      
+      setLoading(false);
+      
+      // Após 5 segundos, redirecionar para a página de conta
+      const redirectTimer = setTimeout(() => {
+        router.push('/minha-conta');
+      }, 5000);
 
-    // Após 5 segundos, redirecionar para a página inicial
-    const redirectTimer = setTimeout(() => {
-      router.push('/minha-conta');
-    }, 5000);
-
-    return () => clearTimeout(redirectTimer);
+      return () => clearTimeout(redirectTimer);
+    };
+    
+    fetchParticipationDetails();
   }, [router, searchParams]);
 
   if (loading) {
@@ -41,14 +84,41 @@ export default function PagamentoSucessoPage() {
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-green-600 mb-4">Pagamento Aprovado!</h2>
-        <p className="text-gray-600 mb-6">
-          Seu pagamento foi aprovado e sua participação foi confirmada com sucesso.
-          {paymentId && (
-            <span className="block mt-2 text-sm">
-              ID do Pagamento: <span className="font-mono text-xs bg-gray-100 p-1 rounded">{paymentId}</span>
-            </span>
-          )}
-        </p>
+        
+        {participationDetails ? (
+          <div className="mb-6">
+            <p className="text-gray-700 mb-4">
+              Sua participação no sorteio <span className="font-semibold">{participationDetails.raffle_title}</span> foi confirmada com sucesso.
+            </p>
+            
+            <div className="bg-green-50 p-4 rounded-md border border-green-200 mb-4">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-600">Números escolhidos:</span>
+                <span className="text-green-700 font-bold">
+                  {participationDetails.chosen_numbers.sort((a, b) => a - b).join(', ')}
+                </span>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-600">Valor pago:</span>
+                <span className="text-green-700 font-bold">
+                  R$ {participationDetails.total_paid.toFixed(2).replace('.', ',')}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-gray-600 mb-6">
+            Seu pagamento foi aprovado e sua participação foi confirmada com sucesso.
+          </p>
+        )}
+        
+        {paymentId && (
+          <p className="text-sm text-gray-500 mb-6">
+            ID do Pagamento: <span className="font-mono text-xs bg-gray-100 p-1 rounded">{paymentId}</span>
+          </p>
+        )}
+        
         <p className="text-sm text-gray-500 mb-6">
           Você será redirecionado para sua conta em alguns segundos...
         </p>
