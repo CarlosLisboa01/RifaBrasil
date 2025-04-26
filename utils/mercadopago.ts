@@ -31,6 +31,7 @@ export async function createPaymentPreference(
     const preference = {
       items: [
         {
+          id: externalReference,
           title: title,
           unit_price: price,
           quantity: quantity,
