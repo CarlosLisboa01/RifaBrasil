@@ -12,10 +12,20 @@ interface ParticipationDetails {
   total_paid: number;
 }
 
-// Definir interface para a resposta do Supabase
-interface RaffleData {
+// Definir interfaces para a resposta do Supabase
+interface Raffle {
   id: string;
   title: string;
+}
+
+interface RaffleArrayItem {
+  id: string;
+  title: string;
+}
+
+// Type guard para verificar se é um objeto raffle válido
+function isRaffle(obj: any): obj is Raffle {
+  return obj && typeof obj === 'object' && 'title' in obj && typeof obj.title === 'string';
 }
 
 export default function PagamentoSucessoPage() {
@@ -69,12 +79,15 @@ export default function PagamentoSucessoPage() {
             if (data.raffles) {
               if (Array.isArray(data.raffles)) {
                 // Se for um array e tiver elementos, usa o título do primeiro
-                if (data.raffles.length > 0 && data.raffles[0]?.title) {
-                  raffleTitle = data.raffles[0].title;
+                if (data.raffles.length > 0) {
+                  const firstRaffle = data.raffles[0];
+                  if (isRaffle(firstRaffle)) {
+                    raffleTitle = firstRaffle.title;
+                  }
                 }
-              } else if (typeof data.raffles === 'object' && data.raffles !== null) {
-                // Se for um objeto, tenta acessar a propriedade title
-                raffleTitle = data.raffles.title || 'Sorteio';
+              } else if (isRaffle(data.raffles)) {
+                // Usar o type guard para garantir que raffles tem uma propriedade title
+                raffleTitle = data.raffles.title;
               }
             }
               
