@@ -1,5 +1,5 @@
 // Importar MercadoPago SDK v2
-import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
+import MercadoPagoConfig, { Preference, Payment } from 'mercadopago';
 
 // Definir o Access Token e Public Key
 const ACCESS_TOKEN = process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-6177131190123047-042219-66d03f2a6b3ed15b50b2b1720d2b74fe-403922089';
