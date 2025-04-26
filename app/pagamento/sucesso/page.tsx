@@ -12,6 +12,12 @@ interface ParticipationDetails {
   total_paid: number;
 }
 
+// Definir interface para a resposta do Supabase
+interface RaffleData {
+  id: string;
+  title: string;
+}
+
 export default function PagamentoSucessoPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -57,10 +63,20 @@ export default function PagamentoSucessoPage() {
             .single();
             
           if (data && !error) {
-            // Lidar com o caso onde raffles pode ser um array ou um objeto
-            const raffleTitle = Array.isArray(data.raffles) 
-              ? (data.raffles.length > 0 ? data.raffles[0].title : 'Sorteio') 
-              : (data.raffles?.title || 'Sorteio');
+            // Determinar o título do sorteio com segurança para os tipos
+            let raffleTitle = 'Sorteio';
+            
+            if (data.raffles) {
+              if (Array.isArray(data.raffles)) {
+                // Se for um array e tiver elementos, usa o título do primeiro
+                if (data.raffles.length > 0 && data.raffles[0]?.title) {
+                  raffleTitle = data.raffles[0].title;
+                }
+              } else if (typeof data.raffles === 'object' && data.raffles !== null) {
+                // Se for um objeto, tenta acessar a propriedade title
+                raffleTitle = data.raffles.title || 'Sorteio';
+              }
+            }
               
             setParticipationDetails({
               id: data.id,
