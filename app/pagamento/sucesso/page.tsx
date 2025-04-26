@@ -18,11 +18,26 @@ export default function PagamentoSucessoPage() {
   const [loading, setLoading] = useState(true);
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [participationDetails, setParticipationDetails] = useState<ParticipationDetails | null>(null);
+  const [numbersFromUrl, setNumbersFromUrl] = useState<number[]>([]);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     const fetchParticipationDetails = async () => {
       const payment_id = searchParams.get('payment_id');
       setPaymentId(payment_id);
+      
+      // Tentar obter os números da URL (útil para ambientes de teste)
+      const numbersParam = searchParams.get('numbers');
+      if (numbersParam) {
+        try {
+          const parsedNumbers = JSON.parse(decodeURIComponent(numbersParam));
+          if (Array.isArray(parsedNumbers)) {
+            setNumbersFromUrl(parsedNumbers);
+          }
+        } catch (e) {
+          console.error('Erro ao processar números da URL:', e);
+        }
+      }
       
       if (payment_id) {
         try {
@@ -42,9 +57,14 @@ export default function PagamentoSucessoPage() {
             .single();
             
           if (data && !error) {
+            // Lidar com o caso onde raffles pode ser um array ou um objeto
+            const raffleTitle = Array.isArray(data.raffles) 
+              ? (data.raffles.length > 0 ? data.raffles[0].title : 'Sorteio') 
+              : (data.raffles?.title || 'Sorteio');
+              
             setParticipationDetails({
               id: data.id,
-              raffle_title: data.raffles.title,
+              raffle_title: raffleTitle,
               chosen_numbers: data.chosen_numbers,
               total_paid: data.payment_amount
             });
@@ -56,16 +76,23 @@ export default function PagamentoSucessoPage() {
       
       setLoading(false);
       
-      // Após 5 segundos, redirecionar para a página de conta
-      const redirectTimer = setTimeout(() => {
-        router.push('/minha-conta');
-      }, 5000);
-
-      return () => clearTimeout(redirectTimer);
+      // Removi o redirecionamento automático para evitar conflitos com a navegação manual
     };
     
     fetchParticipationDetails();
   }, [router, searchParams]);
+
+  const handleGoToAccount = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setRedirecting(true);
+    router.push('/minha-conta');
+  };
+
+  const handleParticipateAgain = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setRedirecting(true);
+    router.push('/participar');
+  };
 
   if (loading) {
     return (
@@ -74,6 +101,10 @@ export default function PagamentoSucessoPage() {
       </div>
     );
   }
+
+  // Determinar quais números mostrar (do banco ou da URL)
+  const numbersToShow = participationDetails?.chosen_numbers || numbersFromUrl;
+  const hasNumbers = numbersToShow.length > 0;
 
   return (
     <div className="max-w-lg mx-auto mt-12 p-8 bg-white rounded-lg shadow-md">
@@ -85,32 +116,36 @@ export default function PagamentoSucessoPage() {
         </div>
         <h2 className="text-2xl font-bold text-green-600 mb-4">Pagamento Aprovado!</h2>
         
-        {participationDetails ? (
-          <div className="mb-6">
-            <p className="text-gray-700 mb-4">
-              Sua participação no sorteio <span className="font-semibold">{participationDetails.raffle_title}</span> foi confirmada com sucesso.
-            </p>
+        <p className="text-gray-700 mb-4">
+          {participationDetails ? (
+            <>Sua participação no sorteio <span className="font-semibold">{participationDetails.raffle_title}</span> foi confirmada com sucesso.</>
+          ) : (
+            <>Seu pagamento foi aprovado e sua participação foi confirmada com sucesso.</>
+          )}
+        </p>
             
-            <div className="bg-green-50 p-4 rounded-md border border-green-200 mb-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium text-gray-600">Números escolhidos:</span>
-                <span className="text-green-700 font-bold">
-                  {participationDetails.chosen_numbers.sort((a, b) => a - b).join(', ')}
-                </span>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">Valor pago:</span>
-                <span className="text-green-700 font-bold">
-                  R$ {participationDetails.total_paid.toFixed(2).replace('.', ',')}
+        {hasNumbers && (
+          <div className="bg-green-50 p-4 rounded-md border border-green-200 mb-4">
+            <div className="mb-2">
+              <span className="text-sm font-medium text-gray-600">Números escolhidos:</span>
+              <div className="mt-1">
+                <span className="text-green-700 font-bold text-lg">
+                  {numbersToShow.sort((a, b) => a - b).join(', ')}
                 </span>
               </div>
             </div>
+            
+            {participationDetails?.total_paid && (
+              <div className="pt-2 border-t border-green-100">
+                <span className="text-sm font-medium text-gray-600">Valor pago:</span>
+                <div className="mt-1">
+                  <span className="text-green-700 font-bold">
+                    R$ {participationDetails.total_paid.toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-        ) : (
-          <p className="text-gray-600 mb-6">
-            Seu pagamento foi aprovado e sua participação foi confirmada com sucesso.
-          </p>
         )}
         
         {paymentId && (
@@ -119,22 +154,21 @@ export default function PagamentoSucessoPage() {
           </p>
         )}
         
-        <p className="text-sm text-gray-500 mb-6">
-          Você será redirecionado para sua conta em alguns segundos...
-        </p>
         <div className="flex flex-col space-y-3 sm:flex-row sm:space-y-0 sm:space-x-3 justify-center">
-          <Link
-            href="/minha-conta"
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+          <button
+            onClick={handleGoToAccount}
+            disabled={redirecting}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
           >
-            Ir para Minha Conta
-          </Link>
-          <Link
-            href="/participar"
-            className="inline-flex items-center px-4 py-2 border border-green-300 rounded-md shadow-sm text-sm font-medium text-green-700 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            {redirecting ? 'Redirecionando...' : 'Ir para Minha Conta'}
+          </button>
+          <button
+            onClick={handleParticipateAgain}
+            disabled={redirecting}
+            className="inline-flex items-center px-4 py-2 border border-green-300 rounded-md shadow-sm text-sm font-medium text-green-700 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
           >
             Participar de Outro Sorteio
-          </Link>
+          </button>
         </div>
       </div>
     </div>
