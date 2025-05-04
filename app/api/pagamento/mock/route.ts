@@ -1,108 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/utils/supabase';
 import { v4 as uuidv4 } from 'uuid';
 
 // Este é um endpoint de mock para simular o Mercado Pago em desenvolvimento
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    console.log("MOCK API: Recebendo requisição para simulação de pagamento");
+    
+    // Parse do corpo da requisição
+    let body;
+    try {
+      body = await request.json();
+      console.log("MOCK API: Corpo da requisição recebido:", JSON.stringify(body));
+    } catch (parseError) {
+      console.error("MOCK API: Erro ao analisar o corpo da requisição:", parseError);
+      return NextResponse.json({ 
+        error: 'Formato de requisição inválido', 
+        details: 'Não foi possível analisar o corpo da requisição como JSON'
+      }, { status: 400 });
+    }
+    
+    // Extrair dados relevantes
     const { participation, unit_price } = body;
     
-    // Obter os números escolhidos
-    const chosenNumbers = participation?.chosen_numbers || [];
-    
-    // Adicionar os números escolhidos como parâmetro na URL
-    const numbersParam = encodeURIComponent(JSON.stringify(chosenNumbers));
-    
-    // Criar identificador único para a transação
-    const mockTransactionId = `MOCK-${uuidv4()}`;
-
-    // Obter a URL base a partir da solicitação
-    const host = request.headers.get('host') || 'localhost:3000';
-    const protocol = host.includes('localhost') ? 'http' : 'https';
-    const baseUrl = `${protocol}://${host}`;
-    
-    console.log(`URL base detectada: ${baseUrl}`);
-    
-    // Primeiro, criar um registro na tabela participations_pending
-    try {
-      const { error: pendingError } = await supabase
-        .from('participations_pending')
-        .insert({
-          user_id: participation.user_id,
-          name: participation.name,
-          phone: participation.phone,
-          chosen_numbers: participation.chosen_numbers,
-          raffle_id: participation.raffle_id,
-          external_reference: mockTransactionId,
-          payment_id: mockTransactionId,
-          payment_status: 'pending',
-          status: 'pending'
-        });
-        
-      if (pendingError) {
-        console.error('Erro ao criar participação pendente:', pendingError);
-        return NextResponse.json({ 
-          error: 'Erro ao criar participação pendente',
-          details: pendingError
-        }, { status: 500 });
-      } else {
-        console.log('Participação pendente criada com sucesso');
-      }
-    } catch (dbError) {
-      console.error('Erro ao acessar banco de dados para criar pendência:', dbError);
+    // Validar dados necessários
+    if (!participation || !participation.user_id || !participation.raffle_id || 
+        !participation.chosen_numbers || !unit_price) {
+      console.error("MOCK API: Dados incompletos:", body);
       return NextResponse.json({ 
-        error: 'Erro ao criar participação pendente',
-        details: dbError instanceof Error ? dbError.message : String(dbError)
-      }, { status: 500 });
+        error: 'Dados incompletos', 
+        details: 'Todos os campos da participação são necessários' 
+      }, { status: 400 });
     }
     
-    // Registrar a participação no histórico independente do status
-    try {
-      // Verificar se a tabela existe antes de tentar inserir
-      const { error: checkError } = await supabase
-        .from('participation_history')
-        .select('id')
-        .limit(1);
-        
-      if (checkError) {
-        console.error('Erro ao verificar tabela participation_history (pode não existir):', checkError);
-        console.log('Pulando registro de histórico, continue com o fluxo...');
-      } else {
-        // Tabela existe, tentar inserir
-        const { error: historyError } = await supabase
-          .from('participation_history')
-          .insert({
-            user_id: participation.user_id,
-            raffle_id: participation.raffle_id,
-            chosen_numbers: participation.chosen_numbers,
-            payment_status: 'pending', // Inicialmente pendente
-            payment_id: mockTransactionId,
-            amount: chosenNumbers.length * unit_price
-          });
-          
-        if (historyError) {
-          console.error('Erro ao registrar no histórico:', historyError);
-        } else {
-          console.log('Participação registrada no histórico com sucesso');
-        }
-      }
-    } catch (dbError) {
-      console.error('Erro ao acessar banco de dados para histórico:', dbError);
-    }
+    // Gerar referência externa e ID de preferência simulados
+    const externalReference = uuidv4();
+    const preferenceId = `MOCK_PREF_${Date.now()}`;
     
-    // Simular resposta do Mercado Pago
+    // Extrair outros dados para logs
+    const { user_id, name, chosen_numbers } = participation;
+    const numberCount = chosen_numbers.length;
+    const totalPrice = numberCount * unit_price;
+    
+    console.log("MOCK API: Dados processados:", {
+      user_id,
+      name,
+      chosen_numbers: numberCount,
+      total_price: totalPrice,
+      external_reference: externalReference,
+      preference_id: preferenceId
+    });
+    
+    // URL base da aplicação
+    const baseUrl = process.env.NEXT_PUBLIC_URL || request.nextUrl.origin;
+    
+    // URL para o checkout mockado
+    const mockCheckoutUrl = `${baseUrl}/pagamento/mock/checkout?numbers=${encodeURIComponent(JSON.stringify(chosen_numbers))}&transaction_id=${externalReference}`;
+    
+    // Simular um pequeno delay para parecer mais realista
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
     return NextResponse.json({
       success: true,
-      preferenceId: 'TEST-MOCK-PREFERENCE-ID',
-      init_point: `${baseUrl}/pagamento/mock/checkout?numbers=${numbersParam}&transaction_id=${mockTransactionId}`,
-      participation_id: mockTransactionId,
-      transaction_id: mockTransactionId
+      preferenceId: preferenceId,
+      init_point: mockCheckoutUrl,
+      participation_id: `MOCK_PART_${Date.now()}`,
+      external_reference: externalReference,
+      is_mock: true
     });
   } catch (error) {
-    console.error('Mock API: Erro ao processar requisição:', error);
+    console.error('MOCK API: Erro ao processar simulação de pagamento:', error);
     return NextResponse.json({ 
-      error: 'Erro no endpoint de mock',
+      error: 'Erro na simulação de pagamento',
       details: error instanceof Error ? error.message : String(error)
     }, { status: 500 });
   }

@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPaymentStatus } from '@/utils/mercadopago';
-import { createClient } from '@supabase/supabase-js';
-
-// Inicializar cliente do Supabase
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+import { supabaseAdmin } from '@/utils/supabase-admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     // Buscar a participação pendente no banco de dados
     console.log('Webhook: Buscando participação pendente com referência:', externalReference);
-    const { data: pendingParticipation, error: fetchError } = await supabase
+    const { data: pendingParticipation, error: fetchError } = await supabaseAdmin
       .from('participations_pending')
       .select('*')
       .eq('external_reference', externalReference)
@@ -85,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     // Registrar no histórico independente do status
     console.log('Webhook: Registrando no histórico de participações');
-    const { error: historyError } = await supabase
+    const { error: historyError } = await supabaseAdmin
       .from('participation_history')
       .insert({
         user_id: pendingParticipation.user_id,
@@ -105,7 +99,7 @@ export async function POST(request: NextRequest) {
     // Se o pagamento não foi aprovado, encerrar aqui
     if (payment.status !== 'approved') {
       // Atualizar o status da participação pendente
-      await supabase
+      await supabaseAdmin
         .from('participations_pending')
         .update({ 
           status: payment.status === 'rejected' ? 'rejected' : 'pending', 
@@ -119,7 +113,7 @@ export async function POST(request: NextRequest) {
 
     // Registrar a participação efetiva na tabela de participants
     console.log('Webhook: Registrando participação efetiva');
-    const { error: insertError } = await supabase
+    const { error: insertError } = await supabaseAdmin
       .from('participants')
       .insert({
         user_id: pendingParticipation.user_id,
@@ -141,7 +135,7 @@ export async function POST(request: NextRequest) {
 
     // Atualizar o status da participação pendente para processada
     console.log('Webhook: Atualizando status da participação pendente');
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from('participations_pending')
       .update({ status: 'processed', payment_id: dataId })
       .eq('id', pendingParticipation.id);
