@@ -198,32 +198,14 @@ async function processPaymentPreference(
   const buyerEmail = 'comprador@example.com'; // Email padrão ou do usuário se disponível
   
   try {
-    const preferenceResult = await createPaymentPreference({
-      items: [
-        {
-          title: `${chosen_numbers.length} número(s) para ${raffle.title}`,
-          quantity: 1,
-          unit_price: price,
-          currency_id: 'BRL',
-          description: `Participação no sorteio: ${raffle.title}`,
-        }
-      ],
-      payer: {
-        name,
-        email: buyerEmail,
-        phone: {
-          number: phone
-        }
-      },
-      external_reference: externalReference,
-      notification_url: notificationUrl,
-      back_urls: {
-        success: `${baseUrl}/minha-conta?status=success`,
-        failure: `${baseUrl}/minha-conta?status=failure`,
-        pending: `${baseUrl}/minha-conta?status=pending`
-      },
-      auto_return: "approved"
-    });
+    const preferenceResult = await createPaymentPreference(
+      `${chosen_numbers.length} número(s) para ${raffle.title}`,
+      price,
+      1, // Quantidade sempre será 1, pois o preço já é o total
+      buyerEmail,
+      externalReference,
+      notificationUrl
+    );
 
     console.log("API: Preferência de pagamento criada com sucesso:", preferenceResult.id);
     
