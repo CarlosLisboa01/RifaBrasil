@@ -1,12 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/utils/supabase';
 import { v4 as uuidv4 } from 'uuid';
 
-export default function MockCheckoutPage() {
+// Componente de loading para uso com Suspense
+function LoadingFallback() {
+  return (
+    <div className="flex justify-center items-center min-h-[70vh]">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+    </div>
+  );
+}
+
+// Componente principal dentro de Suspense
+function MockCheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState<boolean>(false);
@@ -248,68 +258,75 @@ export default function MockCheckoutPage() {
       
       <div className="mb-6">
         <h2 className="text-lg font-semibold mb-3">Método de Pagamento</h2>
-        <p className="text-gray-600 mb-4">
-          Esta é uma página de simulação para testes. Em um ambiente real, aqui estaria a integração com 
-          a plataforma de pagamento escolhida.
+        <p className="text-sm text-gray-500 mb-4">
+          Este é um ambiente de teste. Selecione abaixo o status de pagamento desejado.
         </p>
+        
+        <div className="flex flex-col space-y-3">
+          <button
+            onClick={(e) => handlePayment(e, 'approved')}
+            disabled={loading}
+            className={`flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {processingPayment === 'approved' ? (
+              <>
+                <span className="animate-spin -ml-1 mr-2 h-4 w-4 border-t-2 border-b-2 border-white"></span>
+                Processando...
+              </>
+            ) : (
+              'Simular Pagamento Aprovado'
+            )}
+          </button>
+          
+          <button
+            onClick={(e) => handlePayment(e, 'pending')}
+            disabled={loading}
+            className={`flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {processingPayment === 'pending' ? (
+              <>
+                <span className="animate-spin -ml-1 mr-2 h-4 w-4 border-t-2 border-b-2 border-white"></span>
+                Processando...
+              </>
+            ) : (
+              'Simular Pagamento Pendente'
+            )}
+          </button>
+          
+          <button
+            onClick={(e) => handlePayment(e, 'rejected')}
+            disabled={loading}
+            className={`flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {processingPayment === 'rejected' ? (
+              <>
+                <span className="animate-spin -ml-1 mr-2 h-4 w-4 border-t-2 border-b-2 border-white"></span>
+                Processando...
+              </>
+            ) : (
+              'Simular Pagamento Rejeitado'
+            )}
+          </button>
+        </div>
       </div>
       
-      <div className="flex flex-col space-y-3">
-        <button
-          onClick={(e) => handlePayment(e, 'approved')}
-          className={`w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 ${loading || processingPayment ? 'opacity-50 cursor-not-allowed' : ''}`}
-          disabled={loading || processingPayment !== null}
+      <div className="border-t border-gray-200 pt-4 mt-6">
+        <Link
+          href="/participar"
+          className="text-sm text-blue-600 hover:text-blue-800"
         >
-          {processingPayment === 'approved' ? (
-            <span className="flex items-center justify-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Processando...
-            </span>
-          ) : 'Simular pagamento aprovado'}
-        </button>
-        
-        <button
-          onClick={(e) => handlePayment(e, 'rejected')}
-          className={`w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-bold rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 ${loading || processingPayment ? 'opacity-50 cursor-not-allowed' : ''}`}
-          disabled={loading || processingPayment !== null}
-        >
-          {processingPayment === 'rejected' ? (
-            <span className="flex items-center justify-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Processando...
-            </span>
-          ) : 'Simular pagamento rejeitado'}
-        </button>
-        
-        <button
-          onClick={(e) => handlePayment(e, 'pending')}
-          className={`w-full py-2 px-4 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 ${loading || processingPayment ? 'opacity-50 cursor-not-allowed' : ''}`}
-          disabled={loading || processingPayment !== null}
-        >
-          {processingPayment === 'pending' ? (
-            <span className="flex items-center justify-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Processando...
-            </span>
-          ) : 'Simular pagamento pendente'}
-        </button>
-        
-        <Link 
-          href="/participar" 
-          className={`w-full py-2 px-4 text-center bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          Cancelar
+          &larr; Voltar para seleção de números
         </Link>
       </div>
     </div>
+  );
+}
+
+// Componente principal exportado com Suspense
+export default function MockCheckoutPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <MockCheckoutContent />
+    </Suspense>
   );
 } 

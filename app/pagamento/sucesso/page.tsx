@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/utils/supabase';
@@ -28,7 +28,17 @@ function isRaffle(obj: any): obj is Raffle {
   return obj && typeof obj === 'object' && 'title' in obj && typeof obj.title === 'string';
 }
 
-export default function PagamentoSucessoPage() {
+// Componente de loading para uso com Suspense
+function LoadingFallback() {
+  return (
+    <div className="flex justify-center items-center min-h-[70vh]">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+    </div>
+  );
+}
+
+// Componente principal dentro de Suspense
+function PagamentoSucessoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -203,5 +213,14 @@ export default function PagamentoSucessoPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Componente principal exportado com Suspense
+export default function PagamentoSucessoPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <PagamentoSucessoContent />
+    </Suspense>
   );
 } 

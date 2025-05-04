@@ -1,10 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { mercadoPagoInfo } from '@/utils/mercadopago';
 
-export default function PagamentoPage() {
+// Componente de loading para uso com Suspense
+function LoadingFallback() {
+  return (
+    <div className="max-w-lg mx-auto mt-12 p-8 bg-white rounded-lg shadow-md">
+      <div className="text-center">
+        <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-blue-100 mb-6">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+        <h2 className="text-2xl font-bold text-blue-600 mb-4">Iniciando pagamento</h2>
+        <p className="text-gray-600 mb-6">
+          Estamos preparando seu pagamento. Por favor, aguarde um momento...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Componente principal dentro de Suspense
+function PagamentoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -124,5 +142,14 @@ export default function PagamentoPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+// Componente principal exportado com Suspense
+export default function PagamentoPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <PagamentoContent />
+    </Suspense>
   );
 } 
