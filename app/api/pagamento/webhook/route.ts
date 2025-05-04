@@ -58,12 +58,6 @@ export async function POST(request: NextRequest) {
     const payment = await getPaymentStatus(dataId);
     console.log('Webhook: Status do pagamento:', payment.status);
 
-    // Verificar o status do pagamento
-    if (payment.status !== 'approved') {
-      console.log(`Webhook: Pagamento ${dataId} com status: ${payment.status}, não processando`);
-      return NextResponse.json({ message: `Pagamento com status ${payment.status}` });
-    }
-
     // Obter a referência externa para identificar a participação pendente
     const externalReference = payment.external_reference;
     console.log('Webhook: Referência externa:', externalReference);
@@ -87,6 +81,40 @@ export async function POST(request: NextRequest) {
     if (pendingParticipation.status === 'processed') {
       console.log('Webhook: Participação já processada anteriormente');
       return NextResponse.json({ message: 'Participação já processada anteriormente' });
+    }
+
+    // Registrar no histórico independente do status
+    console.log('Webhook: Registrando no histórico de participações');
+    const { error: historyError } = await supabase
+      .from('participation_history')
+      .insert({
+        user_id: pendingParticipation.user_id,
+        raffle_id: pendingParticipation.raffle_id,
+        chosen_numbers: pendingParticipation.chosen_numbers,
+        payment_status: payment.status, // Status atual do pagamento
+        payment_id: dataId,
+        amount: payment.transaction_amount || 0
+      });
+
+    if (historyError) {
+      console.error('Webhook: Erro ao registrar no histórico:', historyError);
+    } else {
+      console.log('Webhook: Participação registrada no histórico com sucesso');
+    }
+
+    // Se o pagamento não foi aprovado, encerrar aqui
+    if (payment.status !== 'approved') {
+      // Atualizar o status da participação pendente
+      await supabase
+        .from('participations_pending')
+        .update({ 
+          status: payment.status === 'rejected' ? 'rejected' : 'pending', 
+          payment_id: dataId 
+        })
+        .eq('id', pendingParticipation.id);
+        
+      console.log(`Webhook: Pagamento ${dataId} com status: ${payment.status}, atualizando registro`);
+      return NextResponse.json({ message: `Pagamento com status ${payment.status}` });
     }
 
     // Registrar a participação efetiva na tabela de participants

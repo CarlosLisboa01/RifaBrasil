@@ -95,17 +95,30 @@ ALTER TABLE public.raffles_draws
     FOREIGN KEY (raffle_id)
     REFERENCES public.raffles(id);
 
+-- ==========================================
+-- CONFIGURAÇÃO DA SEGURANÇA DE LINHA (RLS)
+-- ==========================================
+
+-- IMPORTANTE: Desabilitar RLS para tabelas críticas durante o desenvolvimento
+-- Use isso apenas para desenvolvimento e testes locais
+ALTER TABLE public.raffles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.participants DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.participations_pending DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.raffles_draws DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_users DISABLE ROW LEVEL SECURITY;
+
+-- Para produção, você pode habilitar RLS e usar as políticas abaixo
+-- Descomente e execute este bloco quando estiver pronto para produção
+
+/*
 -- Habilite RLS (Row Level Security)
 ALTER TABLE public.raffles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.participants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.participations_pending ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.raffles_draws ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_users DISABLE ROW LEVEL SECURITY; -- Admin sempre fica desabilitado
 
--- IMPORTANTE: Desabilitar RLS para admin_users para resolver o problema de acesso
-ALTER TABLE public.admin_users DISABLE ROW LEVEL SECURITY;
-
--- Políticas de Segurança
--- Raffle Policies
+-- Políticas de Segurança para Raffle
 DROP POLICY IF EXISTS "Sorteios visíveis para todos" ON public.raffles;
 CREATE POLICY "Sorteios visíveis para todos" ON public.raffles FOR SELECT USING (true);
 
@@ -145,26 +158,21 @@ CREATE POLICY "Qualquer usuário autenticado pode excluir participações" ON pu
     auth.uid() IS NOT NULL
 );
 
--- Participations Pending Policies
-DROP POLICY IF EXISTS "Users can view their own pending participations" ON public.participations_pending;
-CREATE POLICY "Users can view their own pending participations" ON public.participations_pending FOR SELECT USING (
-    auth.uid() = user_id
-);
+-- Participations Pending Policies - IMPORTANTE: Estas são as políticas mais críticas
+DROP POLICY IF EXISTS "API pode inserir pendências" ON public.participations_pending;
+CREATE POLICY "API pode inserir pendências" ON public.participations_pending 
+FOR INSERT TO authenticated, anon, service_role
+WITH CHECK (true);
 
-DROP POLICY IF EXISTS "Admins can view all pending participations" ON public.participations_pending;
-CREATE POLICY "Admins can view all pending participations" ON public.participations_pending FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid())
-);
+DROP POLICY IF EXISTS "API pode atualizar pendências" ON public.participations_pending;
+CREATE POLICY "API pode atualizar pendências" ON public.participations_pending 
+FOR UPDATE TO authenticated, anon, service_role
+USING (true);
 
-DROP POLICY IF EXISTS "Service can insert pending participations" ON public.participations_pending;
-CREATE POLICY "Service can insert pending participations" ON public.participations_pending FOR INSERT WITH CHECK (
-    true
-);
-
-DROP POLICY IF EXISTS "Service can update pending participations" ON public.participations_pending;
-CREATE POLICY "Service can update pending participations" ON public.participations_pending FOR UPDATE USING (
-    true
-);
+DROP POLICY IF EXISTS "Todos podem visualizar pendências" ON public.participations_pending;
+CREATE POLICY "Todos podem visualizar pendências" ON public.participations_pending 
+FOR SELECT TO authenticated, anon, service_role
+USING (true);
 
 -- Raffle Draws Policies
 DROP POLICY IF EXISTS "Anyone can view raffle draws" ON public.raffles_draws;
@@ -176,6 +184,7 @@ DROP POLICY IF EXISTS "Only admins can insert raffle draws" ON public.raffles_dr
 CREATE POLICY "Only admins can insert raffle draws" ON public.raffles_draws FOR INSERT WITH CHECK (
     EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid())
 );
+*/
 
 -- Funções para verificar e adicionar colunas dinamicamente
 CREATE OR REPLACE FUNCTION check_column_exists(table_name text, column_name text)
@@ -208,4 +217,23 @@ END;
 $$;
 
 -- Verificar se o usuário admin foi inserido corretamente
-SELECT * FROM public.admin_users WHERE user_id = 'a5675d30-e0a7-4fe5-b6db-5e2f7abf9476'; 
+SELECT * FROM public.admin_users WHERE user_id = 'a5675d30-e0a7-4fe5-b6db-5e2f7abf9476';
+
+-- Inserir um sorteio de exemplo para testes
+INSERT INTO public.raffles (
+    title, 
+    description, 
+    min_number, 
+    max_number, 
+    status, 
+    unit_price, 
+    image_url
+) VALUES (
+    'Celta Rebaixado', 
+    'Sorteio de um Celta 2010 todo rebaixado com som automotivo',
+    1, 
+    100, 
+    'open', 
+    5.00,
+    'https://nkuadhiaeosakxxozxmc.supabase.co/storage/v1/object/public/raffle-images/1745366590739_maxresdefault.jpg'
+); 

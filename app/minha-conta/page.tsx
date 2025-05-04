@@ -27,6 +27,7 @@ interface RaffleParticipation {
   chosen_numbers: number[];
   created_at: string;
   total_paid: number;
+  payment_status?: string;
 }
 
 export default function MinhaContaPage() {
@@ -44,6 +45,7 @@ export default function MinhaContaPage() {
   useEffect(() => {
     const checkUser = async () => {
       try {
+        console.log('Verificando usuário logado...');
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -58,7 +60,10 @@ export default function MinhaContaPage() {
 
         setUser(session.user);
 
-        // Buscar participações com join completo
+        // Array que conterá todas as participações (confirmadas + histórico)
+        let allParticipations: RaffleParticipation[] = [];
+
+        // 1. Buscar participações confirmadas
         const { data: participationsData, error: participationsError } = await supabase
           .from('participants')
           .select(`
@@ -68,6 +73,8 @@ export default function MinhaContaPage() {
             phone,
             chosen_numbers,
             created_at,
+            payment_status,
+            payment_amount,
             raffle_id,
             raffle:raffles!raffle_id (
               id,
@@ -84,60 +91,118 @@ export default function MinhaContaPage() {
           .order('created_at', { ascending: false });
 
         if (participationsError) {
-          console.error('Erro ao buscar participações:', participationsError.message);
-          throw participationsError;
-        }
-
-        if (!participationsData) {
-          console.log('Nenhuma participação encontrada');
-          setParticipations([]);
-          setStats({
-            total_participations: 0,
-            total_raffles: 0,
-            total_numbers: 0,
-          });
-          return;
-        }
-
-        console.log('Dados brutos das participações:', participationsData);
-
-        const formattedParticipations: RaffleParticipation[] = participationsData.map(p => {
-          // Verificamos se raffle é um array e pegamos o primeiro item, ou usamos o próprio valor
-          const raffleData = Array.isArray(p.raffle) ? p.raffle[0] : p.raffle;
+          console.error('Erro ao buscar participações confirmadas:', participationsError.message);
+        } else if (participationsData) {
+          console.log('Participações confirmadas encontradas:', participationsData.length);
           
-          return {
-            id: p.id,
-            name: p.name || session.user.user_metadata?.name || 'Não informado',
-            phone: p.phone || session.user.user_metadata?.phone || 'Não informado',
-            chosen_numbers: Array.isArray(p.chosen_numbers) ? p.chosen_numbers : [],
-            created_at: p.created_at,
-            raffle: {
-              id: raffleData?.id || '',
-              title: raffleData?.title || '',
-              image_url: raffleData?.image_url || '',
-              unit_price: raffleData?.unit_price || 0,
-              status: raffleData?.status || '',
-              description: raffleData?.description || ''
-            },
-            total_paid: (Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0) * (raffleData?.unit_price || 0)
-          };
-        });
+          // Formatar participações confirmadas
+          const formattedConfirmedParticipations = participationsData.map(p => {
+            const raffleData = Array.isArray(p.raffle) ? p.raffle[0] : p.raffle;
+            
+            return {
+              id: p.id,
+              name: p.name || session.user.user_metadata?.name || 'Não informado',
+              phone: p.phone || session.user.user_metadata?.phone || 'Não informado',
+              chosen_numbers: Array.isArray(p.chosen_numbers) ? p.chosen_numbers : [],
+              created_at: p.created_at,
+              payment_status: p.payment_status || 'approved',
+              raffle: {
+                id: raffleData?.id || '',
+                title: raffleData?.title || '',
+                image_url: raffleData?.image_url || '',
+                unit_price: raffleData?.unit_price || 0,
+                status: raffleData?.status || '',
+                description: raffleData?.description || ''
+              },
+              total_paid: p.payment_amount || ((Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0) * (raffleData?.unit_price || 0))
+            };
+          });
+          
+          allParticipations = [...formattedConfirmedParticipations];
+        }
 
-        console.log('Participações formatadas:', formattedParticipations);
+        // 2. Buscar participações do histórico (que não estão na lista confirmada)
+        const { data: historyData, error: historyError } = await supabase
+          .from('participation_history')
+          .select(`
+            id,
+            user_id,
+            chosen_numbers,
+            created_at,
+            payment_status,
+            payment_id,
+            amount,
+            raffle_id,
+            raffle:raffles!raffle_id (
+              id,
+              title,
+              description,
+              image_url,
+              unit_price,
+              status
+            )
+          `)
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false });
 
-        setParticipations(formattedParticipations);
-
-        // Calcular estatísticas
-        const uniqueRaffles = new Set(participationsData.filter(p => p.raffle).map(p => {
-          const raffleData = Array.isArray(p.raffle) ? p.raffle[0] : p.raffle;
-          return raffleData?.id;
-        }).filter(Boolean));
+        if (historyError) {
+          console.error('Erro ao buscar histórico de participações:', historyError.message);
+        } else if (historyData) {
+          console.log('Histórico de participações encontrado:', historyData.length);
+          
+          // Converter participações do histórico
+          const historyParticipations = historyData.map(h => {
+            const raffleData = Array.isArray(h.raffle) ? h.raffle[0] : h.raffle;
+            
+            // Verificar se essa participação do histórico já está incluída nas participações confirmadas
+            const alreadyInConfirmed = allParticipations.some(p => 
+              p.chosen_numbers.toString() === h.chosen_numbers.toString() && 
+              p.raffle.id === h.raffle_id
+            );
+            
+            // Se já estiver nas confirmadas, pular
+            if (alreadyInConfirmed) {
+              return null;
+            }
+            
+            return {
+              id: h.id,
+              name: session.user.user_metadata?.name || 'Não informado',
+              phone: session.user.user_metadata?.phone || 'Não informado',
+              chosen_numbers: Array.isArray(h.chosen_numbers) ? h.chosen_numbers : [],
+              created_at: h.created_at,
+              payment_status: h.payment_status,
+              raffle: {
+                id: raffleData?.id || '',
+                title: raffleData?.title || '',
+                image_url: raffleData?.image_url || '',
+                unit_price: raffleData?.unit_price || 0,
+                status: raffleData?.status || '',
+                description: raffleData?.description || ''
+              },
+              total_paid: h.amount || ((Array.isArray(h.chosen_numbers) ? h.chosen_numbers.length : 0) * (raffleData?.unit_price || 0))
+            };
+          }).filter(Boolean) as RaffleParticipation[];
+          
+          allParticipations = [...allParticipations, ...historyParticipations];
+        }
         
-        const totalNumbers = participationsData.reduce((sum, p) => 
+        // Ordenar todas as participações por data (mais recentes primeiro)
+        allParticipations.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        
+        console.log('Total de participações combinadas:', allParticipations.length);
+        setParticipations(allParticipations);
+
+        // Calcular estatísticas com base em todas as participações
+        const uniqueRaffles = new Set(allParticipations.map(p => p.raffle.id).filter(Boolean));
+        
+        const totalNumbers = allParticipations.reduce((sum, p) => 
           sum + (Array.isArray(p.chosen_numbers) ? p.chosen_numbers.length : 0), 0);
 
         setStats({
-          total_participations: participationsData.length,
+          total_participations: allParticipations.length,
           total_raffles: uniqueRaffles.size,
           total_numbers: totalNumbers,
         });
@@ -247,6 +312,21 @@ export default function MinhaContaPage() {
                   // Por enquanto, vamos considerar apenas o status finished
                   const isWinner = participation.raffle?.status === 'finished';
                   
+                  // Determinar o estilo com base no status do pagamento
+                  let statusStyle = 'bg-gray-100 text-gray-700';
+                  let statusText = 'Pendente';
+                  
+                  if (participation.payment_status === 'approved') {
+                    statusStyle = 'bg-green-100 text-green-800';
+                    statusText = 'Aprovado';
+                  } else if (participation.payment_status === 'rejected') {
+                    statusStyle = 'bg-red-100 text-red-800';
+                    statusText = 'Rejeitado';
+                  } else if (participation.payment_status === 'pending') {
+                    statusStyle = 'bg-yellow-100 text-yellow-800';
+                    statusText = 'Pendente';
+                  }
+                  
                   return (
                     <div 
                       key={participation.id} 
@@ -355,16 +435,21 @@ export default function MinhaContaPage() {
                             </div>
 
                             <div className="mt-3 pt-3 border-t border-gray-100">
-                              <div className="flex justify-between">
-                                <span className={`px-3 py-1 text-sm font-semibold rounded-full 
-                                  ${participation.raffle?.status === 'open' ? 'bg-green-100 text-green-800' : 
-                                    participation.raffle?.status === 'closed' ? 'bg-red-100 text-red-800' : 
-                                    'bg-gray-100 text-gray-800'}`}
-                                >
-                                  Status: {participation.raffle?.status === 'open' ? 'Aberto' : 
-                                          participation.raffle?.status === 'closed' ? 'Fechado' : 
-                                          'Finalizado'}
-                                </span>
+                              <div className="flex justify-between items-center">
+                                <div className="flex space-x-2">
+                                  <span className={`px-3 py-1 text-sm font-semibold rounded-full 
+                                    ${participation.raffle?.status === 'open' ? 'bg-green-100 text-green-800' : 
+                                      participation.raffle?.status === 'closed' ? 'bg-red-100 text-red-800' : 
+                                      'bg-gray-100 text-gray-800'}`}
+                                  >
+                                    Status Sorteio: {participation.raffle?.status === 'open' ? 'Aberto' : 
+                                            participation.raffle?.status === 'closed' ? 'Fechado' : 
+                                            'Finalizado'}
+                                  </span>
+                                  <span className={`px-3 py-1 text-sm font-semibold rounded-full ${statusStyle}`}>
+                                    Pagamento: {statusText}
+                                  </span>
+                                </div>
                                 {participation.raffle?.status === 'open' && (
                                   <Link
                                     href="/participar"
