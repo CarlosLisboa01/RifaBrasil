@@ -230,6 +230,7 @@ export default function ParticiparPage() {
     setMessage(null);
     
     try {
+      console.log("Iniciando processo de participação");
       // Converter a string de números escolhidos para um array de números inteiros
       const chosenNumbersArray = data.chosenNumbers
         .split(',')
@@ -240,22 +241,32 @@ export default function ParticiparPage() {
         throw new Error('Selecione pelo menos um número para participar');
       }
       
+      if (!selectedRaffle) {
+        throw new Error('Nenhum sorteio selecionado. Por favor, selecione um sorteio.');
+      }
+      
       // Verificar novamente se os números escolhidos estão disponíveis
       const { data: existingParticipants, error: participantsError } = await supabase
         .from('participants')
         .select('chosen_numbers')
-        .eq('raffle_id', selectedRaffle?.id);
+        .eq('raffle_id', selectedRaffle.id);
         
-      if (participantsError) throw new Error('Erro ao verificar números disponíveis');
+      if (participantsError) {
+        console.error('Erro ao verificar números disponíveis:', participantsError);
+        throw new Error('Erro ao verificar números disponíveis. Verifique sua conexão.');
+      }
       
       // Buscar números em participações pendentes
       const { data: pendingParticipations, error: pendingError } = await supabase
         .from('participations_pending')
         .select('chosen_numbers')
-        .eq('raffle_id', selectedRaffle?.id)
+        .eq('raffle_id', selectedRaffle.id)
         .eq('status', 'pending');
         
-      if (pendingError) throw new Error('Erro ao verificar participações pendentes');
+      if (pendingError) {
+        console.error('Erro ao verificar participações pendentes:', pendingError);
+        throw new Error('Erro ao verificar participações pendentes. Verifique sua conexão.');
+      }
       
       // Combinar todos os números já escolhidos
       const allChosenNumbers = [
@@ -276,34 +287,83 @@ export default function ParticiparPage() {
         name: data.name,
         phone: data.phone.replace(/\D/g, ''), // Remover caracteres não numéricos
         chosen_numbers: chosenNumbersArray,
-        raffle_id: selectedRaffle?.id,
+        raffle_id: selectedRaffle.id,
         status: 'pending',
       };
       
-      const response = await fetch('/api/pagamento/preference', {
+      // Obter o URL base atual (incluindo a porta)
+      const baseUrl = window.location.origin;
+      console.log("URL base detectada:", baseUrl);
+      
+      // Verificar se estamos em ambiente de desenvolvimento
+      const isDevelopment = process.env.NODE_ENV === 'development' || 
+                            baseUrl.includes('localhost') || 
+                            baseUrl.includes('127.0.0.1');
+      
+      console.log("Ambiente de desenvolvimento?", isDevelopment);
+      
+      // Em desenvolvimento, usar o endpoint de mock para facilitar testes
+      const endpointUrl = isDevelopment 
+        ? `${baseUrl}/api/pagamento/mock` 
+        : `${baseUrl}/api/pagamento/preference`;
+      
+      console.log("Usando endpoint:", endpointUrl);
+      
+      // Testar conexão com Mercado Pago usando endpoint de teste
+      try {
+        const mpTestResponse = await fetch(`${baseUrl}/api/pagamento/teste`, {
+          method: 'GET'
+        });
+        
+        if (!mpTestResponse.ok) {
+          console.error('Erro ao testar conexão com Mercado Pago');
+        } else {
+          console.log('Conexão com Mercado Pago testada com sucesso');
+        }
+      } catch (testError) {
+        console.error('Erro ao testar conexão:', testError);
+      }
+      
+      console.log("Enviando requisição para criar preferência de pagamento:", {
+        participation: participationData,
+        unit_price: selectedRaffle.unit_price || 0
+      });
+      
+      const response = await fetch(endpointUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           participation: participationData,
-          unit_price: selectedRaffle?.unit_price || 0,
+          unit_price: selectedRaffle.unit_price || 0,
         }),
       });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.message || 'Erro ao criar preferência de pagamento');
+        const errorText = await response.text();
+        console.error('Resposta de erro da API:', errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          console.error('Não foi possível analisar a resposta como JSON');
+          throw new Error(`Erro ${response.status}: ${errorText || 'Erro desconhecido'}`);
+        }
+        
+        throw new Error(errorData.error || errorData.message || `Erro ${response.status}: Falha ao criar preferência de pagamento`);
       }
       
-      const { preferenceId, participation_id, init_point } = await response.json();
+      const responseData = await response.json();
+      const { preferenceId, participation_id, init_point } = responseData;
+      console.log("Resposta recebida:", responseData);
       
-      // Se tiver o link de pagamento direto, redirecionar para lá
+      // Redirecionar diretamente para o Mercado Pago
       if (init_point) {
         window.location.href = init_point;
       } else {
-        // Caso contrário, redirecionar para nossa página de pagamento
-        router.push(`/pagamento?preference_id=${preferenceId}&participation_id=${participation_id}`);
+        throw new Error('Link de pagamento não recebido do Mercado Pago');
       }
       
     } catch (error: any) {
@@ -393,6 +453,7 @@ export default function ParticiparPage() {
                       src={selectedRaffle.image_url}
                       alt={selectedRaffle.title}
                       fill
+                      sizes="(max-width: 768px) 100vw, 600px"
                       style={{ objectFit: 'cover' }}
                       className="rounded-lg"
                     />

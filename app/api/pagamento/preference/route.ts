@@ -1,52 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createPaymentPreference } from '@/utils/mercadopago';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin, testSupabaseConnection, createPendingParticipation } from '@/utils/supabase-admin';
 import { v4 as uuidv4 } from 'uuid';
-
-// Verificar se as variáveis de ambiente estão definidas
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Variáveis de ambiente do Supabase não definidas corretamente');
-  console.error(`URL: ${supabaseUrl ? 'Definida' : 'INDEFINIDA'}`);
-  console.error(`Anon Key: ${supabaseAnonKey ? 'Definida' : 'INDEFINIDA'}`);
-  console.error(`Service Key: ${supabaseServiceKey ? 'Definida' : 'INDEFINIDA'}`);
-}
-
-// Inicializar cliente do Supabase
-const supabase = createClient(
-  supabaseUrl || '',
-  supabaseServiceKey || supabaseAnonKey || ''
-);
 
 export async function POST(request: NextRequest) {
   try {
     console.log("API: Recebendo requisição para criar preferência");
     
-    // Verificar conexão com Supabase
-    try {
-      const { count, error: checkError } = await supabase
-        .from('raffles')
-        .select('*', { count: 'exact', head: true });
-        
-      if (checkError) {
-        console.error('API: Erro ao verificar conexão com Supabase:', checkError);
-        return NextResponse.json({ 
-          error: 'Erro de conexão com o banco de dados', 
-          details: checkError
-        }, { status: 500 });
-      }
-      
-      console.log(`API: Conexão com Supabase OK, tabela raffles existe e contém ${count} registros`);
-    } catch (connError) {
-      console.error('API: Erro ao conectar com Supabase:', connError);
+    // Verificar conexão com Supabase usando a função de teste
+    const connectionResult = await testSupabaseConnection();
+    if (!connectionResult.success) {
+      console.error('API: Erro na conexão com Supabase durante o teste:', connectionResult.error);
       return NextResponse.json({ 
-        error: 'Falha na conexão com o banco de dados',
-        details: connError instanceof Error ? connError.message : String(connError)
+        error: 'Erro de conexão com o banco de dados', 
+        details: connectionResult.error
       }, { status: 500 });
     }
+    
+    console.log(`API: Conexão com Supabase OK, tabela raffles existe`);
     
     // Parse do corpo da requisição
     let body;
@@ -79,7 +50,7 @@ export async function POST(request: NextRequest) {
     
     // Obter detalhes do sorteio
     console.log(`API: Buscando informações do sorteio com ID: ${raffle_id}`);
-    const { data: raffle, error: raffleError } = await supabase
+    const { data: raffle, error: raffleError } = await supabaseAdmin
       .from('raffles')
       .select('*')
       .eq('id', raffle_id)
@@ -88,7 +59,7 @@ export async function POST(request: NextRequest) {
     if (raffleError) {
       console.error('API: Erro ao buscar informações do sorteio:', raffleError);
       // Tentar uma abordagem alternativa para buscar o sorteio
-      const { data: allRaffles, error: allRafflesError } = await supabase
+      const { data: allRaffles, error: allRafflesError } = await supabaseAdmin
         .from('raffles')
         .select('*');
       
@@ -195,70 +166,27 @@ async function processPaymentPreference(
   const externalReference = uuidv4();
   console.log("API: External reference gerada:", externalReference);
   
-  try {
-    // Verificar se a tabela participations_pending existe
-    const { count, error: checkError } = await supabase
-      .from('participations_pending')
-      .select('*', { count: 'exact', head: true });
-    
-    if (checkError) {
-      console.error('API: Erro ao verificar tabela participations_pending:', checkError);
-      return NextResponse.json({ 
-        error: 'Tabela participations_pending não encontrada ou não acessível', 
-        details: checkError 
-      }, { status: 500 });
-    }
-    
-    console.log(`API: Tabela participations_pending existe e contém ${count} registros`);
-  } catch (tableError) {
-    console.error('API: Erro ao verificar tabela:', tableError);
-  }
-  
-  // Salvar uma versão pendente da participação no banco de dados
+  // Salvar uma versão pendente da participação no banco de dados usando a função do admin
   console.log("API: Tentando salvar participação pendente");
-  const { data: participationData, error: participationError } = await supabase
-    .from('participations_pending')
-    .insert({
-      user_id,
-      name,
-      phone,
-      chosen_numbers,
-      raffle_id: raffle.id,
-      external_reference: externalReference,
-      status: 'pending'
-    })
-    .select('*')
-    .single();
-
-  if (participationError) {
-    console.error('API: Erro ao salvar participação pendente:', participationError);
-    console.error('API: Detalhes do erro:', JSON.stringify(participationError));
-    
-    // Tentar inserir diretamente via SQL para contornar o RLS
-    const { data: sqlInsertData, error: sqlInsertError } = await supabase.rpc(
-      'insert_pending_participation',
-      { 
-        p_user_id: user_id,
-        p_name: name,
-        p_phone: phone,
-        p_chosen_numbers: chosen_numbers,
-        p_raffle_id: raffle.id,
-        p_external_reference: externalReference
-      }
-    );
-    
-    if (sqlInsertError) {
-      console.error('API: Erro ao tentar inserção alternativa:', sqlInsertError);
-      return NextResponse.json({ 
-        error: 'Erro ao registrar participação pendente', 
-        details: participationError 
-      }, { status: 500 });
-    }
-    
-    console.log('API: Inserção alternativa bem-sucedida:', sqlInsertData);
+  
+  const participationResult = await createPendingParticipation({
+    user_id,
+    name,
+    phone,
+    chosen_numbers,
+    raffle_id: raffle.id,
+    external_reference: externalReference
+  });
+  
+  if (!participationResult.success) {
+    console.error('API: Erro ao salvar participação pendente:', participationResult.error);
+    return NextResponse.json({ 
+      error: 'Erro ao registrar participação pendente', 
+      details: participationResult.error 
+    }, { status: 500 });
   }
 
-  console.log("API: Participação pendente salva com sucesso. ID:", participationData?.id || 'Não disponível');
+  console.log("API: Participação pendente salva com sucesso");
 
   // URL de notificação para o webhook
   const baseUrl = process.env.NEXT_PUBLIC_URL || 'https://rifa-brasil.vercel.app';
@@ -286,7 +214,7 @@ async function processPaymentPreference(
       success: true,
       preferenceId: preference.id,
       init_point: preference.init_point, // URL para redirecionar o usuário
-      participation_id: participationData?.id || 'pending-id'
+      participation_id: 'pending-id-' + externalReference
     });
   } catch (mpError) {
     console.error('API: Erro ao criar preferência no Mercado Pago:', mpError);
